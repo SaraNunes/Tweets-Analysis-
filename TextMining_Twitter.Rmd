@@ -1,0 +1,200 @@
+---
+title: "TextMining"
+output:
+  html_document: default
+  word_document: default
+---
+
+## ----setup, include=FALSE------------------------------------------------
+knitr::opts_chunk$set(echo = TRUE)
+
+```{r}
+library(devtools)
+library(base64enc)
+# si tienes problemas con la instalación normal instala twitteR de:
+# install_github("geoffjentry/twitteR")
+library("twitteR")
+library("tm")
+library("ggplot2")
+library("ggmap")
+library("twitteR")
+library("httr")
+library("wordcloud")
+library ("SnowballC")
+library("RColorBrewer")
+library("stringr")
+library("lubridate")
+library("data.table")
+library(dplyr)
+library(wordcloud)
+library(rtweet)
+```
+
+```{r, echo=FALSE,eval=TRUE}
+CONSUMER_KEY <- "HtzFn1phbC8oNGaVGAcLiDRFY"
+CONSUMER_SECRET <- "Bb7QFIb95lfFl1m1UiQ3nqR3NqEKcOIlB7idU3uqUOX1AGMSan"
+access_token <- "1124270837937397761-nPSxI0xkoVY5Que9KMG7WECYniik2D"
+access_secret <- "xTVvat5HtLBfsD4x4SyJSOuKuJexZzAdMqx2b3aoWumZD"
+```
+
+```{r}
+download.file(url = "http://curl.haxx.se/ca/cacert.pem",destfile="cacert.pem")
+```
+
+```{r,echo=TRUE,eval=TRUE}
+setup_twitter_oauth(CONSUMER_KEY, CONSUMER_SECRET, access_token, access_secret)
+```
+
+#Extraer de Twitter los tweets referentes a #CambioClimático.
+## ----eval=TRUE-----------------------------------------------------------
+```{r}
+tweets <- searchTwitter("#CambioClimático",n=1500)
+```
+
+
+#Convertimos a data.frame
+```{r}
+tweets.df <- twListToDF(tweets)
+head(tweets.df)
+```
+
+# Pasamos a un data.frame
+```{r}
+write.csv(tweets.df, file = "CambioClimático.csv")
+```
+
+# numero de tweets
+```{r}
+dim(tweets.df)[1]
+```
+
+#usuarios distintos //aceso negado a data de usuarios
+```{r}
+users <- users_data(tweets.df) 
+unique(users$user_id)
+
+```
+
+#numero de retweet
+```{r}
+retweets <- tweets.df %>% filter(isRetweet == TRUE)
+dim(retweets)[1]
+```
+
+#numero de reretweets 
+```{r}
+retweeted <- tweets.df %>% filter(retweeted == TRUE)
+dim(retweeted)[1]
+```
+
+#numero medio de retweets 
+```{r}
+numero_medio <- tweets.df %>% 
+   group_by(id) %>%
+   summarize(Mean = mean(retweetCount))
+```
+
+#distintos idiomas //no tenemos aceso al idioma del tweets
+lista_idiomas <- select(tweets.df, language) 
+unique(language)
+
+#nombres de usuarios de las 10 personas que más han participado. ¿Quién es el usuario que más ha participado?
+
+R: No tenemos aceso al usuario que han hecho los tweets
+
+#Extraer en un data frame aquellos tweets re-tuiteados más de 5 veces
+```{r}
+df <- tweets.df %>% filter(retweetCount > 5)
+```
+
+#text mining
+
+#Haz pre-procesamiento adecuado
+
+```{r}
+toSpace <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+toString <- content_transformer(function(x, from, to) gsub(from, to, x))
+gsub('[[:punct:]]','',tweets.df$text,ignore.case = TRUE)
+tweets.df$text <- stringr::str_replace_all(tweets.df$text, "@\\w+"," ")
+tweets.df$text <- stringr::str_replace_all(tweets.df$text, "#\\S+"," ")## Remove Hashtags
+tweets.df$text <- stringr::str_replace_all(tweets.df$text, "http\\S+\\s*"," ")## Remove URLs
+tweets.df$text <- stringr::str_replace_all(tweets.df$text, "http[[:alnum:]]*"," ")## Remove URLs
+tweets.df$text <- stringr::str_replace_all(tweets.df$text, "http[[\\b+RT]]"," ")## Remove URLs
+tweets.df$text <- stringr::str_replace_all(tweets.df$text, "[[:cntrl:]]"," ")
+docsCorpus <- Corpus(VectorSource(tweets.df$text))
+docsCorpus <- tm_map(docsCorpus, function(x) iconv(enc2utf8(x), sub = "byte"))
+docsCorpus <- tm_map(docsCorpus, content_transformer(tolower))
+docsCorpus <- tm_map(docsCorpus, removeNumbers)
+docsCorpus <- tm_map(docsCorpus, stripWhitespace)
+docsCorpus <- tm_map(docsCorpus, removeWords, c("que","las","para","del", "los","por","más","sin","de","sobre","una","...","detrás","@"))
+dtm <- DocumentTermMatrix(docsCorpus)
+```
+
+#Calcula la media de la frecuencia de aparición de los términos
+
+```{r}
+freq <- colSums(as.matrix(dtm))
+
+ord <- order(freq)
+freq[tail(ord)]
+mean_freq <- mean(freq)
+```
+
+#Encuentra los términos que ocurren más de la media y guárdalos en un data.frame: término y su frecuencia. Usa knitr::kable en el .Rmd siempre que quieras visualizar los data.frame.
+
+#Ordena este data.frame por la frecuencia
+
+```{r}
+word_freq <- data.frame(termino=names(freq),frequencia=freq)
+word_freq %>% filter(frequencia > mean_freq) %>% arrange(desc(frequencia))
+```
+
+#Haz un plot de los términos más frecuentes. Si salen muchos términos visualiza un número adecuado de palabras para que se pueda ver algo.
+```{r}
+wordcloud(word_freq$termino, word_freq$frequencia, scale=c(3,0.5), max.words=60, random.order=FALSE, 
+          rot.per=0.10, use.r.layout=TRUE, colors=brewer.pal(6, "Dark2")) 
+```
+#Genera diversos wordclouds y graba en disco el wordcloud generado.
+
+```{r}
+wordcloud(word_freq$termino, word_freq$frequencia, max.words=100, min.freq = 50, colors=brewer.pal(6, "RdBu"))
+```
+
+```{r}
+barplot(word_freq[1:10,]$frequencia, las = 2,names.arg=word_freq[1:10,]$termino,
+        col ="lightblue", main ="Most frequent words",
+        ylab = "Word frequencies")
+```
+
+#Busca información de paquete wordcloud2. Genera algún gráfico con este paquete.
+
+```{r}
+library(wordcloud2)
+wordcloud2(word_freq, color = "random-light", backgroundColor = "grey")
+```
+
+#Para las 5 palabras más importantes de vuestro análisis encontrar palabras que estén relacionadas y guárdalas en un data.frame. Haz plot de las asociaciones.
+```{r}
+assocs <- findAssocs(dtm, c("especies", "contra", "informe","países","lucha"), c(0.7))
+```
+
+#Haz plot con los dispositivos desde los que se han mandado los tweets. //aceso negado a source, dispositivo que mando los tweets
+
+R: no tenemos aceso al source de los dispositivos que mandaron los tweets
+
+Seria asi: sources <- tweets.df %>%
+  group_by(source) %>% 
+  count() %>%
+  arrange(-n)
+
+
+#Para la palabra más frecuente de tu análisis busca y graba en un data.frame en los tweets en los que está dicho término. El data.frame tendrá como columnas: término, usuario, texto.
+
+```{r}
+library(stringr)
+
+especies <- tweets.df %>%
+  filter(str_detect(text, '\\b(especies)\\b'))
+
+especies <- data.frame(texto = especies$text, termino = "especies")
+```
